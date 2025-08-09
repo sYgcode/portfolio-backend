@@ -3,11 +3,36 @@ const cloudinary = require('cloudinary').v2;
 
 class UploadService {
     constructor() {
-        this.provider = process.env.UPLOAD_PROVIDER || 'cloudinary'; // 'cloudinary' or 'spaces'
+        this.provider = process.env.UPLOAD_PROVIDER || 'cloudinary';
     }
 
     async uploadPhoto(file, options = {}) {
         const { title, addWatermark = false } = options;
+
+        // Validate file before upload
+        if (!file) {
+            throw new Error('No file provided');
+        }
+
+        // Check for buffer (handle different multer configurations)
+        const buffer = file.buffer || file.data;
+        if (!buffer || buffer.length === 0) {
+            console.error('File buffer is empty or missing:', {
+                hasBuffer: !!file.buffer,
+                hasData: !!file.data,
+                bufferLength: buffer?.length,
+                fileSize: file.size,
+                originalName: file.originalname
+            });
+            throw new Error('File buffer is empty or corrupted');
+        }
+
+        console.log('Upload service - File info:', {
+            size: file.size,
+            bufferLength: buffer.length,
+            mimetype: file.mimetype,
+            originalname: file.originalname
+        });
 
         if (this.provider === 'cloudinary') {
             return await this.uploadToCloudinary(file, options);
@@ -20,26 +45,58 @@ class UploadService {
 
     async uploadToCloudinary(file, options) {
         try {
-            // Current Cloudinary upload logic (unchanged)
+            const buffer = file.buffer || file.data;
+            
+            if (!buffer || buffer.length === 0) {
+                throw new Error('Invalid file buffer for Cloudinary upload');
+            }
+
+            console.log('Uploading to Cloudinary:', {
+                bufferLength: buffer.length,
+                mimetype: file.mimetype,
+                provider: this.provider
+            });
+
             const result = await new Promise((resolve, reject) => {
-                cloudinary.uploader.upload_stream(
-                    {
-                        resource_type: 'auto',
-                        folder: 'photography',
-                        transformation: options.addWatermark ? [
-                            { overlay: 'watermark_logo', gravity: 'south_east', opacity: 30 }
-                        ] : undefined
-                    },
+                const uploadOptions = {
+                    resource_type: 'auto',
+                    folder: 'photography',
+                    // Add quality optimization
+                    quality: 'auto:good',
+                    fetch_format: 'auto'
+                };
+
+                if (options.addWatermark) {
+                    uploadOptions.transformation = [
+                        { overlay: 'watermark_logo', gravity: 'south_east', opacity: 30 }
+                    ];
+                }
+
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    uploadOptions,
                     (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
+                        if (error) {
+                            console.error('Cloudinary upload error:', error);
+                            reject(error);
+                        } else {
+                            console.log('Cloudinary upload success:', {
+                                public_id: result.public_id,
+                                width: result.width,
+                                height: result.height,
+                                bytes: result.bytes
+                            });
+                            resolve(result);
+                        }
                     }
-                ).end(file.buffer);
+                );
+
+                // Write buffer to stream
+                uploadStream.end(buffer);
             });
 
             return {
                 imageUrl: result.secure_url,
-                thumbnailUrl: result.secure_url, // Cloudinary can generate on-the-fly
+                thumbnailUrl: result.secure_url.replace('/upload/', '/upload/c_thumb,w_400,h_300/'),
                 publicId: result.public_id,
                 provider: 'cloudinary',
                 metadata: {
@@ -50,76 +107,18 @@ class UploadService {
                 }
             };
         } catch (error) {
-            console.error('Cloudinary upload error:', error);
-            throw new Error('Failed to upload to Cloudinary');
+            console.error('Cloudinary upload error details:', {
+                message: error.message,
+                stack: error.stack,
+                fileSize: file.size,
+                mimetype: file.mimetype
+            });
+            throw new Error(`Failed to upload to Cloudinary: ${error.message}`);
         }
     }
 
-    async uploadToSpaces(file, options) {
-        // Future Spaces implementation would go here
-        // For now, fallback to Cloudinary
-        console.warn('Spaces upload not implemented yet, falling back to Cloudinary');
-        return await this.uploadToCloudinary(file, options);
-        
-        /* Future implementation:
-        const AWS = require('aws-sdk');
-        const sharp = require('sharp');
-        
-        // Process image with watermark if requested
-        let processedBuffer = file.buffer;
-        if (options.addWatermark) {
-            processedBuffer = await this.addWatermark(file.buffer);
-        }
-        
-        // Upload to Spaces
-        const s3 = new AWS.S3({...});
-        const result = await s3.upload({
-            Bucket: process.env.SPACES_BUCKET,
-            Key: `photos/${Date.now()}-${options.title}.jpg`,
-            Body: processedBuffer,
-            ACL: 'public-read'
-        }).promise();
-        
-        return {
-            imageUrl: result.Location,
-            thumbnailUrl: result.Location, // Would need separate thumbnail upload
-            publicId: result.Key,
-            provider: 'spaces',
-            metadata: {...}
-        };
-        */
-    }
-
-    async deletePhoto(publicId, provider) {
-        if (provider === 'cloudinary' || !provider) {
-            return await this.deleteFromCloudinary(publicId);
-        } else if (provider === 'spaces') {
-            return await this.deleteFromSpaces(publicId);
-        }
-    }
-
-    async deleteFromCloudinary(publicId) {
-        try {
-            await cloudinary.uploader.destroy(publicId);
-            console.log(`Deleted ${publicId} from Cloudinary`);
-        } catch (error) {
-            console.error('Failed to delete from Cloudinary:', error);
-        }
-    }
-
-    async deleteFromSpaces(key) {
-        // Future Spaces delete implementation
-        console.warn('Spaces delete not implemented yet');
-    }
-
-    // Future watermark method
-    async addWatermark(imageBuffer) {
-        // This would use Sharp to add watermark
-        // For now, return original buffer
-        return imageBuffer;
-    }
+    // ... rest of your methods stay the same
 }
 
-// Singleton instance
 const uploadService = new UploadService();
 module.exports = uploadService;

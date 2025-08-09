@@ -373,7 +373,8 @@ exports.getAlbums = [
           if (albumObj.coverImageUrl && albumObj.coverImageUrl.includes('cloudinary.com')) {
             albumObj.coverImageUrl = albumObj.coverImageUrl.replace(
               '/upload/', 
-              '/upload/q_auto:low,f_auto,w_600/'
+              '/upload/'
+              //'/upload/q_auto:low,f_auto,w_600/'
             );
           }
           return albumObj;
@@ -414,7 +415,8 @@ exports.getFeaturedAlbums = [
           if (albumObj.coverImageUrl && albumObj.coverImageUrl.includes('cloudinary.com')) {
             albumObj.coverImageUrl = albumObj.coverImageUrl.replace(
               '/upload/', 
-              '/upload/q_auto:low,f_auto,w_600/'
+              '/upload/'
+              //'/upload/q_auto:low,f_auto,w_600/'
             );
           }
           return albumObj;
@@ -452,7 +454,8 @@ exports.getAlbumById = [
       if (safeAlbum.coverImageUrl && safeAlbum.coverImageUrl.includes('cloudinary.com')) {
         safeAlbum.coverImageUrl = safeAlbum.coverImageUrl.replace(
           '/upload/', 
-          '/upload/q_auto:low,f_auto,w_800/'
+          '/upload/'
+          //'/upload/q_auto:low,f_auto,w_800/'
         );
       }
 

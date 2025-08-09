@@ -5,7 +5,9 @@ const validator = require('validator');
 // GET /me
 exports.getCurrentUser = async (req, res) => {
   try {
+    console.log('Fetching current user for ID:', req.user.id);
     const user = await User.findById(req.user.id).select('-password');
+    console.log('Current user:', user); 
     if (!user) return res.status(404).json({ message: 'User not found' });
     res.json(user);
   } catch (err) {
@@ -149,6 +151,57 @@ exports.updateFavorites = async (req, res) => {
 
     res.json({ message: 'Added to favorites', id });
   } catch (err) {
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// GET /me/favorites?type=photo|product&limit=10&page=1
+exports.getFavorites = async (req, res) => {
+  const { id } = req.params;
+  const { type, limit = 10, page = 1 } = req.query;
+
+  if (!['photo', 'product'].includes(type))
+    return res.status(400).json({ message: 'Invalid type' });
+
+  try {
+    const user = await User.findById(req.user.id).populate(
+      type === 'photo' ? 'favoritePhotos' : 'favoriteProducts'
+    );
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // If checking specific item (when ID is provided)
+    if (id) {
+      const isFavorited = user[
+        type === 'photo' ? 'favoritePhotos' : 'favoriteProducts'
+      ].some((item) => item._id.toString() === id);
+      return res.json({ isFavorited });
+    }
+
+    // Get all favorites with pagination
+    const favorites = type === 'photo' ? user.favoritePhotos : user.favoriteProducts;
+    
+    // Apply pagination
+    const limitNum = parseInt(limit);
+    const pageNum = parseInt(page);
+    const skip = (pageNum - 1) * limitNum;
+    
+    const paginatedFavorites = favorites.slice(skip, skip + limitNum);
+    const totalFavorites = favorites.length;
+    const totalPages = Math.ceil(totalFavorites / limitNum);
+
+    res.json({
+      favorites: paginatedFavorites,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalFavorites,
+        limit: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
+  } catch (err) {
+    console.error('Get favorites error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };

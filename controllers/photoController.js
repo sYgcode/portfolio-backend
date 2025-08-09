@@ -297,24 +297,16 @@ exports.createPhoto = [
         return res.status(400).json({ message: 'No file uploaded' });
       }
 
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-      if (!allowedTypes.includes(req.file.mimetype)) {
-        return res.status(400).json({ message: 'Invalid file type. Only JPEG, PNG, GIF, and WebP allowed.' });
-      }
-
-      const maxSize = 50 * 1024 * 1024; // 50MB
-      if (req.file.size > maxSize) {
-        return res.status(400).json({ message: 'File too large. Maximum size is 50MB.' });
-      }
+      console.log('CloudinaryStorage result:', {
+        path: req.file.path,
+        filename: req.file.filename,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
 
       const { title, description, photographer, tags, metadata, isFeatured } = req.body;
 
-      const existingPhoto = await Photo.findOne({ title: title.trim() });
-      if (existingPhoto) {
-        return res.status(400).json({ message: 'A photo with this title already exists' });
-      }
-
-      // Process tags (keep your existing logic)
+      // Process tags and metadata (your existing logic)
       let processedTags = [];
       if (tags) {
         try {
@@ -327,14 +319,12 @@ exports.createPhoto = [
             : [tagsArray.toString().trim().toLowerCase()];
           
           processedTags = [...new Set(processedTags.filter(tag => tag.length > 0))];
-          processedTags = processedTags.filter(tag => tag.length <= 100);
         } catch (error) {
           console.error('Error processing tags:', error);
           processedTags = [];
         }
       }
 
-      // Process metadata (keep your existing logic)
       let parsedMetadata = {};
       if (metadata) {
         try {
@@ -344,33 +334,27 @@ exports.createPhoto = [
         }
       }
 
-      // THIS IS THE MAIN CHANGE - Use upload service instead of direct Cloudinary
-      const uploadResult = await uploadService.uploadPhoto(req.file, {
-        title: title.trim(),
-        addWatermark: false // Set to true when you want watermarks
-      });
-
-      // Merge upload metadata with parsed metadata
+      // UPDATED: Use CloudinaryStorage result directly
       const photoMetadata = {
-        width: uploadResult.metadata.width || parsedMetadata.width ? parseInt(parsedMetadata.width) : null,
-        height: uploadResult.metadata.height || parsedMetadata.height ? parseInt(parsedMetadata.height) : null,
-        originalWidth: parsedMetadata.originalWidth ? parseInt(parsedMetadata.originalWidth) : uploadResult.metadata.width,
-        originalHeight: parsedMetadata.originalHeight ? parseInt(parsedMetadata.originalHeight) : uploadResult.metadata.height,
+        width: parsedMetadata.width ? parseInt(parsedMetadata.width) : null,
+        height: parsedMetadata.height ? parseInt(parsedMetadata.height) : null,
+        originalWidth: parsedMetadata.originalWidth ? parseInt(parsedMetadata.originalWidth) : null,
+        originalHeight: parsedMetadata.originalHeight ? parseInt(parsedMetadata.originalHeight) : null,
         originalSizeKB: parsedMetadata.originalSizeKB ? parseFloat(parsedMetadata.originalSizeKB) : null,
-        sizeKB: uploadResult.metadata.sizeKB || req.file.size / 1024,
-        format: uploadResult.metadata.format || parsedMetadata.format || req.file.mimetype,
+        sizeKB: req.file.size / 1024,
+        format: req.file.mimetype,
         location: parsedMetadata.location || null,
         photographer: parsedMetadata.photographer || photographer || null,
         dateTaken: parsedMetadata.dateTaken ? new Date(parsedMetadata.dateTaken) : null
       };
 
-      // Create photo record - UPDATED to use upload service results
+      // Create photo record using CloudinaryStorage results
       const photo = await Photo.create({
         title: title.trim(),
-        imageUrl: uploadResult.imageUrl,
-        thumbnailUrl: uploadResult.thumbnailUrl, // New field for thumbnails
-        publicId: uploadResult.publicId,
-        provider: uploadResult.provider, // Track which service was used
+        imageUrl: req.file.path, // CloudinaryStorage provides this
+        thumbnailUrl: req.file.path.replace('/upload/', '/upload/c_thumb,w_400,h_300/'),
+        publicId: req.file.filename, // CloudinaryStorage provides this
+        provider: 'cloudinary',
         description: description ? description.trim() : null,
         tags: processedTags,
         metadata: photoMetadata,
@@ -381,7 +365,7 @@ exports.createPhoto = [
         _id: photo._id,
         title: photo.title,
         imageUrl: photo.imageUrl,
-        thumbnailUrl: photo.thumbnailUrl, // Include in response
+        thumbnailUrl: photo.thumbnailUrl,
         description: photo.description,
         tags: photo.tags,
         isFeatured: photo.isFeatured,
@@ -394,30 +378,6 @@ exports.createPhoto = [
       
     } catch (err) {
       console.error('Create photo error:', err);
-      
-      // Error cleanup still works because uploadService handles the provider logic
-      if (req.file && req.file.public_id) {
-        await uploadService.deletePhoto(req.file.public_id, 'cloudinary');
-      }
-      
-      if (err.name === 'ValidationError') {
-        const validationErrors = Object.values(err.errors).map(e => ({
-          field: e.path,
-          message: e.message
-        }));
-        return res.status(400).json({
-          message: 'Validation failed',
-          errors: validationErrors
-        });
-      }
-      
-      if (err.code === 11000) {
-        const field = Object.keys(err.keyPattern)[0];
-        return res.status(400).json({
-          message: `A photo with this ${field} already exists`
-        });
-      }
-      
       next(err);
     }
   }
@@ -471,8 +431,9 @@ exports.getPhotos = [
           const photoObj = photo.toObject();
           if (photoObj.imageUrl && photoObj.imageUrl.includes('cloudinary.com')) {
             photoObj.imageUrl = photoObj.imageUrl.replace(
-              '/upload/', 
-              '/upload/q_auto:low,f_auto,w_800/'
+              '/upload/',
+              '/upload/' 
+              //'/upload/q_auto:low,f_auto,w_800/'
             );
           }
           return photoObj;
@@ -513,7 +474,8 @@ exports.getFeaturedPhotos = [
           if (photoObj.imageUrl && photoObj.imageUrl.includes('cloudinary.com')) {
             photoObj.imageUrl = photoObj.imageUrl.replace(
               '/upload/', 
-              '/upload/q_auto:low,f_auto,w_800/'
+              '/upload/'
+              //'/upload/q_auto:low,f_auto,w_800/'
             );
           }
           return photoObj;
@@ -545,7 +507,8 @@ exports.getPhotoById = [
       if (safePhoto.imageUrl && safePhoto.imageUrl.includes('cloudinary.com')) {
         safePhoto.imageUrl = safePhoto.imageUrl.replace(
           '/upload/', 
-          '/upload/q_auto:low,f_auto,w_1200/'
+          '/upload/'
+          //'/upload/q_auto:low,f_auto,w_1200/'
         );
       }
 
