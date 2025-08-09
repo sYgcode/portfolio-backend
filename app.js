@@ -9,7 +9,7 @@ const albumRoutes = require('./routes/albumRoutes');
 
 const errorHandler = require('./middleware/errorHandler');
 const cors = require('cors');
-const allowedOrigins = ['http://localhost:5173', 'http://localhost:5000', 'https://dancing-otter-56344f.netlify.app'];
+const allowedOrigins = ['http://localhost:5173', 'http://localhost:5000', 'https://dancing-otter-56344f.netlify.app', 'https://unblurred.netlify.app'];
 const app = express();
 
 // Middleware
